@@ -28,6 +28,12 @@ import { handleGetServiceDefinition } from "./handlers/handleGetServiceDefinitio
 import { handleCreateProgram } from "./handlers/handleCreateProgram";
 import { handleUpdateProgramSource } from "./handlers/handleUpdateProgramSource";
 import { handleActivateObject } from "./handlers/handleActivateObject";
+import { handleDeleteObject } from "./handlers/handleDeleteObject";
+import {
+  handleCreateFunctionGroup,
+  handleCreateFunctionModule,
+  handleUpdateFunctionModuleSource,
+} from "./handlers/handleFunctions";
 import { handleGetTransportInfo } from "./handlers/handleGetTransportInfo";
 import {
   handleGetTextElements,
@@ -496,11 +502,102 @@ export const WRITE_TOOL_DEFINITIONS = [
         object_name: { type: "string", description: "Object name" },
         object_type: {
           type: "string",
-          enum: ["PROG", "INCL", "CLAS", "INTF"],
-          description: "Object type (default PROG)",
+          enum: ["PROG", "INCL", "CLAS", "INTF", "FUGR", "FUNC"],
+          description:
+            "Object type (default PROG). FUGR = function group, FUNC = function module (needs function_group)",
+        },
+        function_group: {
+          type: "string",
+          description: "Function group of the function module (FUNC only)",
         },
       },
       required: ["object_name"],
+    },
+  },
+  {
+    name: "DeleteObject",
+    description:
+      "Delete an ABAP object (Y*/Z* only): program, include, class, interface, function group or function module. Irreversible; the deletion is recorded on the transport. confirm must repeat the object name.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        object_name: { type: "string", description: "Object name" },
+        object_type: {
+          type: "string",
+          enum: ["PROG", "INCL", "CLAS", "INTF", "FUGR", "FUNC"],
+          description:
+            "Object type (default PROG). FUGR = function group, FUNC = function module (needs function_group)",
+        },
+        function_group: {
+          type: "string",
+          description: "Function group of the function module (FUNC only)",
+        },
+        confirm: {
+          type: "string",
+          description: "Repeat the object name to confirm the deletion",
+        },
+        transport: TRANSPORT,
+      },
+      required: ["object_name", "confirm"],
+    },
+  },
+  {
+    name: "CreateFunctionGroup",
+    description:
+      "Create a new function group (Y*/Z* only, max 26 characters) in a package, recorded on a transport request.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        function_group: { type: "string", description: "New function group name" },
+        description: {
+          type: "string",
+          description: "Short text (max 74 characters)",
+        },
+        package_name: {
+          type: "string",
+          description: "Package ($TMP for a local object)",
+        },
+        transport: TRANSPORT,
+        language: {
+          type: "string",
+          description:
+            "Master language (two letters, default SAP_LANGUAGE or EN)",
+        },
+      },
+      required: ["function_group", "description", "package_name"],
+    },
+  },
+  {
+    name: "CreateFunctionModule",
+    description:
+      "Create an empty function module (Y*/Z* only) in an existing function group. Write it with UpdateFunctionModuleSource.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        function_group: { type: "string", description: "Function group" },
+        function_name: { type: "string", description: "New function module name" },
+        description: {
+          type: "string",
+          description: "Short text (max 74 characters)",
+        },
+        transport: TRANSPORT,
+      },
+      required: ["function_group", "function_name", "description"],
+    },
+  },
+  {
+    name: "UpdateFunctionModuleSource",
+    description:
+      "Replace the full source of a function module (Y*/Z* only), signature included (FUNCTION name IMPORTING ... EXPORTING ... TABLES ... EXCEPTIONS ... .). TABLES parameters use LIKE (or TYPE), not STRUCTURE. Stays inactive until ActivateObject.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        function_group: { type: "string", description: "Function group" },
+        function_name: { type: "string", description: "Function module name" },
+        source: { type: "string", description: "Complete ABAP source" },
+        transport: TRANSPORT,
+      },
+      required: ["function_group", "function_name", "source"],
     },
   },
 ];
@@ -512,6 +609,10 @@ const WRITE_HANDLERS: Record<string, (args: any) => Promise<any>> = {
   UpdateProgramSource: handleUpdateProgramSource,
   UpdateTextElements: handleUpdateTextElements,
   ActivateObject: handleActivateObject,
+  DeleteObject: handleDeleteObject,
+  CreateFunctionGroup: handleCreateFunctionGroup,
+  CreateFunctionModule: handleCreateFunctionModule,
+  UpdateFunctionModuleSource: handleUpdateFunctionModuleSource,
 };
 
 const HANDLERS: Record<string, (args: any) => Promise<any>> = {
@@ -605,7 +706,7 @@ export function createServer(): McpServer {
               }
             : {
                 readOnlyHint: false,
-                destructiveHint: tool.name !== "CreateProgram",
+                destructiveHint: !tool.name.startsWith("Create"),
                 idempotentHint: false,
                 openWorldHint: true,
               },

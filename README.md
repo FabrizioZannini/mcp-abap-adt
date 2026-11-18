@@ -381,7 +381,11 @@ Write tools are **not registered** unless the server is started with `SAP_ALLOW_
 | `CreateProgram`       | Create an empty executable program in a package.                            | `program_name`, `description`, `package_name`, `transport` (required unless `$TMP`), `language` |
 | `UpdateProgramSource` | Replace the full program source (lock, write, unlock). It stays inactive until activated. | `program_name`, `source`, `transport` |
 | `UpdateTextElements`  | Replace text symbols, selection texts or list headings.                     | `program_name`, `kind`, `source`, `transport` |
-| `ActivateObject`      | Activate an object and return activation messages with line numbers.        | `object_name`, `object_type` (`PROG`/`INCL`/`CLAS`/`INTF`, default `PROG`) |
+| `ActivateObject`      | Activate an object and return activation messages with line numbers.        | `object_name`, `object_type` (`PROG`/`INCL`/`CLAS`/`INTF`/`FUGR`/`FUNC`, default `PROG`), `function_group` (`FUNC` only) |
+| `CreateFunctionGroup` | Create a function group in a package.                                       | `function_group`, `description`, `package_name`, `transport` (required unless `$TMP`), `language` |
+| `CreateFunctionModule` | Create an empty function module in a function group.                       | `function_group`, `function_name`, `description`, `transport` |
+| `UpdateFunctionModuleSource` | Replace the full function module source, signature included (`TABLES` parameters use `LIKE`/`TYPE`). It stays inactive until activated. | `function_group`, `function_name`, `source`, `transport` |
+| `DeleteObject`        | Delete an object. Irreversible; `confirm` must repeat the object name.      | `object_name`, `object_type`, `function_group` (`FUNC` only), `confirm`, `transport` |
 
 
 

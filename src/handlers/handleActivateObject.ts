@@ -5,6 +5,7 @@ import {
     return_write_error,
     return_write_result,
 } from '../lib/adtWrite';
+import { functionGroupPath, functionModulePath } from './handleFunctions';
 
 const OBJECT_PATHS: Record<string, string> = {
     PROG: '/sap/bc/adt/programs/programs/',
@@ -37,19 +38,34 @@ export function parseActivationMessages(xml: string) {
     return messages;
 }
 
+/** ADT URI of a customer object from object_type/object_name(/function_group). */
+export function resolveObject(args: any) {
+    const objectType = String(args?.object_type ?? 'PROG').trim().toUpperCase();
+    const objectName = normalizeCustomerName(args?.object_name, 'object_name');
+    if (objectType === 'FUGR') {
+        return { objectType, objectName, uri: functionGroupPath(objectName) };
+    }
+    if (objectType === 'FUNC') {
+        if (!args?.function_group) {
+            throw new McpError(ErrorCode.InvalidParams, 'function_group is required for FUNC');
+        }
+        const group = normalizeCustomerName(args.function_group, 'function_group');
+        return { objectType, objectName, uri: functionModulePath(group, objectName) };
+    }
+    const basePath = OBJECT_PATHS[objectType];
+    if (!basePath) {
+        throw new McpError(
+            ErrorCode.InvalidParams,
+            `object_type must be one of ${[...Object.keys(OBJECT_PATHS), 'FUGR', 'FUNC'].join(', ')}`
+        );
+    }
+    return { objectType, objectName, uri: `${basePath}${encodeURIComponent(objectName.toLowerCase())}` };
+}
+
 export async function handleActivateObject(args: any) {
     try {
         assertWriteEnabled();
-        const objectType = String(args?.object_type ?? 'PROG').trim().toUpperCase();
-        const basePath = OBJECT_PATHS[objectType];
-        if (!basePath) {
-            throw new McpError(
-                ErrorCode.InvalidParams,
-                `object_type must be one of ${Object.keys(OBJECT_PATHS).join(', ')}`
-            );
-        }
-        const objectName = normalizeCustomerName(args?.object_name, 'object_name');
-        const uri = `${basePath}${encodeURIComponent(objectName.toLowerCase())}`;
+        const { objectName, uri } = resolveObject(args);
         const body =
             '<?xml version="1.0" encoding="UTF-8"?>' +
             '<adtcore:objectReferences xmlns:adtcore="http://www.sap.com/adt/core">' +

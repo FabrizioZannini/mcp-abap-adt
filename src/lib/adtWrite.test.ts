@@ -10,6 +10,12 @@ import {
 import { parseActivationMessages } from '../handlers/handleActivateObject';
 import { handleUpdateProgramSource } from '../handlers/handleUpdateProgramSource';
 import { createServer } from '../index';
+import { handleDeleteObject } from '../handlers/handleDeleteObject';
+import {
+  functionGroupPath,
+  functionModulePath,
+  handleUpdateFunctionModuleSource
+} from '../handlers/handleFunctions';
 
 describe('write tool safety', () => {
   const original = process.env.SAP_ALLOW_WRITE;
@@ -44,7 +50,68 @@ describe('write tool safety', () => {
     if (readOnly.length === 0) return; // SDK internals not exposed
     expect(readOnly).not.toContain('UpdateProgramSource');
     expect(writable).toEqual(
-      expect.arrayContaining(['CreateProgram', 'UpdateProgramSource', 'ActivateObject', 'UpdateTextElements'])
+      expect.arrayContaining([
+        'CreateProgram',
+        'UpdateProgramSource',
+        'ActivateObject',
+        'UpdateTextElements',
+        'CreateFunctionGroup',
+        'CreateFunctionModule',
+        'UpdateFunctionModuleSource'
+      ])
+    );
+    expect(readOnly).not.toContain('CreateFunctionGroup');
+  });
+
+  it('refuses function module writes when disabled', async () => {
+    delete process.env.SAP_ALLOW_WRITE;
+    const result = await handleUpdateFunctionModuleSource({
+      function_group: 'ZFG_TEST',
+      function_name: 'Z_TEST',
+      source: 'FUNCTION z_test. ENDFUNCTION.'
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/disabled/);
+  });
+});
+
+describe('object deletion', () => {
+  const original = process.env.SAP_ALLOW_WRITE;
+  afterEach(() => {
+    if (original === undefined) delete process.env.SAP_ALLOW_WRITE;
+    else process.env.SAP_ALLOW_WRITE = original;
+  });
+
+  it('refuses when writes are disabled', async () => {
+    delete process.env.SAP_ALLOW_WRITE;
+    const result = await handleDeleteObject({ object_name: 'ZTEST', confirm: 'ZTEST' });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/disabled/);
+  });
+
+  it('requires the object name to be confirmed before touching SAP', async () => {
+    process.env.SAP_ALLOW_WRITE = '1';
+    const result = await handleDeleteObject({
+      object_name: 'ZFG_STK3ORD',
+      object_type: 'FUGR',
+      confirm: 'ZFG_ST3KORD'
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/confirm/);
+  });
+
+  it('refuses SAP standard objects', async () => {
+    process.env.SAP_ALLOW_WRITE = '1';
+    const result = await handleDeleteObject({ object_name: 'SAPMV45A', confirm: 'SAPMV45A' });
+    expect(result.isError).toBe(true);
+  });
+});
+
+describe('function module paths', () => {
+  it('builds ADT URIs for groups and modules', () => {
+    expect(functionGroupPath('ZFG_STK3ORD')).toBe('/sap/bc/adt/functions/groups/zfg_stk3ord');
+    expect(functionModulePath('ZFG_STK3ORD', 'ZFMD_STK3ORD_UPL')).toBe(
+      '/sap/bc/adt/functions/groups/zfg_stk3ord/fmodules/zfmd_stk3ord_upl'
     );
   });
 });
