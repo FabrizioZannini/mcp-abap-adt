@@ -25,6 +25,15 @@ import { handleSearchObject } from "./handlers/handleSearchObject";
 import { handleGetCDSView } from "./handlers/handleGetCDSView";
 import { handleGetBehaviorDefinition } from "./handlers/handleGetBehaviorDefinition";
 import { handleGetServiceDefinition } from "./handlers/handleGetServiceDefinition";
+import { handleCreateProgram } from "./handlers/handleCreateProgram";
+import { handleUpdateProgramSource } from "./handlers/handleUpdateProgramSource";
+import { handleActivateObject } from "./handlers/handleActivateObject";
+import { handleGetTransportInfo } from "./handlers/handleGetTransportInfo";
+import {
+  handleGetTextElements,
+  handleUpdateTextElements,
+} from "./handlers/handleTextElements";
+import { isWriteEnabled } from "./lib/adtWrite";
 
 // Import shared utility functions and types
 import { MAX_PAGE_LINES, cleanup } from "./lib/utils";
@@ -376,6 +385,135 @@ const TOOL_DEFINITIONS = [
   },
 ];
 
+// Write tools: registered only when SAP_ALLOW_WRITE=1. They are limited to
+// customer objects (Y*, Z*, /NAMESPACE/) and always release their locks.
+const TEXT_KIND = {
+  type: "string",
+  enum: ["symbols", "selections", "headings"],
+  description:
+    "symbols = text symbols (TEXT-xxx), selections = selection texts, headings = list headings",
+};
+const TRANSPORT = {
+  type: "string",
+  description:
+    "Transport request number (e.g. MEDK900123). Required for transportable packages.",
+};
+
+export const WRITE_TOOL_DEFINITIONS = [
+  {
+    name: "GetTransportInfo",
+    readOnly: true,
+    description:
+      "Ask the Transport Organizer which transport requests can record a program in a package. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        package_name: { type: "string", description: "Target package" },
+        program_name: { type: "string", description: "Program name" },
+      },
+      required: ["package_name", "program_name"],
+    },
+  },
+  {
+    name: "GetTextElements",
+    readOnly: true,
+    description:
+      "Read text symbols, selection texts or list headings of an ABAP program. Read-only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        program_name: { type: "string", description: "Program name" },
+        kind: TEXT_KIND,
+      },
+      required: ["program_name", "kind"],
+    },
+  },
+  {
+    name: "CreateProgram",
+    description:
+      "Create a new executable ABAP program (Y*/Z* only) in a package, recorded on a transport request. Creates an empty program; write it with UpdateProgramSource.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        program_name: { type: "string", description: "New program name" },
+        description: {
+          type: "string",
+          description: "Program title (max 70 characters)",
+        },
+        package_name: {
+          type: "string",
+          description: "Package ($TMP for a local object)",
+        },
+        transport: TRANSPORT,
+        language: {
+          type: "string",
+          description:
+            "Master language (two letters, default SAP_LANGUAGE or EN)",
+        },
+      },
+      required: ["program_name", "description", "package_name"],
+    },
+  },
+  {
+    name: "UpdateProgramSource",
+    description:
+      "Replace the full source of an ABAP program (Y*/Z* only): lock, write, unlock. The new version stays inactive until ActivateObject.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        program_name: { type: "string", description: "Program name" },
+        source: { type: "string", description: "Complete ABAP source" },
+        transport: TRANSPORT,
+      },
+      required: ["program_name", "source"],
+    },
+  },
+  {
+    name: "UpdateTextElements",
+    description:
+      "Replace text symbols, selection texts or list headings of an ABAP program (Y*/Z* only). Use GetTextElements first to see the expected format.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        program_name: { type: "string", description: "Program name" },
+        kind: TEXT_KIND,
+        source: {
+          type: "string",
+          description: "Complete text elements content in ADT text format",
+        },
+        transport: TRANSPORT,
+      },
+      required: ["program_name", "kind", "source"],
+    },
+  },
+  {
+    name: "ActivateObject",
+    description:
+      "Activate an ABAP object (Y*/Z* only) and return the activation messages (errors with line numbers).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        object_name: { type: "string", description: "Object name" },
+        object_type: {
+          type: "string",
+          enum: ["PROG", "INCL", "CLAS", "INTF"],
+          description: "Object type (default PROG)",
+        },
+      },
+      required: ["object_name"],
+    },
+  },
+];
+
+const WRITE_HANDLERS: Record<string, (args: any) => Promise<any>> = {
+  GetTransportInfo: handleGetTransportInfo,
+  GetTextElements: handleGetTextElements,
+  CreateProgram: handleCreateProgram,
+  UpdateProgramSource: handleUpdateProgramSource,
+  UpdateTextElements: handleUpdateTextElements,
+  ActivateObject: handleActivateObject,
+};
+
 const HANDLERS: Record<string, (args: any) => Promise<any>> = {
   GetProgram: handleGetProgram,
   GetClass: handleGetClass,
@@ -437,6 +575,49 @@ export function createServer(): McpServer {
           async () => (await HANDLERS[tool.name](args)) as CallToolResult,
         ),
     );
+  }
+  if (isWriteEnabled()) {
+    for (const tool of WRITE_TOOL_DEFINITIONS) {
+      const properties: Record<string, any> = structuredClone(
+        tool.inputSchema.properties,
+      );
+      for (const [name, value] of Object.entries(properties)) {
+        if (value.type === "string" && !value.enum) {
+          value.minLength = 1;
+          value.maxLength = name === "source" ? 2 * 1024 * 1024 : 1024;
+        }
+      }
+      server.registerTool(
+        tool.name,
+        {
+          description: tool.description,
+          inputSchema: fromJsonSchema<Record<string, unknown>>({
+            ...tool.inputSchema,
+            properties,
+            additionalProperties: false,
+          }),
+          annotations: tool.readOnly
+            ? {
+                readOnlyHint: true,
+                destructiveHint: false,
+                idempotentHint: true,
+                openWorldHint: true,
+              }
+            : {
+                readOnlyHint: false,
+                destructiveHint: tool.name !== "CreateProgram",
+                idempotentHint: false,
+                openWorldHint: true,
+              },
+        },
+        async (args, ctx) =>
+          withRequestSignal(
+            ctx.mcpReq.signal,
+            async () =>
+              (await WRITE_HANDLERS[tool.name](args)) as CallToolResult,
+          ),
+      );
+    }
   }
   return server;
 }

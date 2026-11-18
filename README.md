@@ -2,7 +2,7 @@
 
 This project provides a server that allows you to interact with SAP ABAP systems using the Model Context Protocol (MCP).  Think of it as a bridge that lets tools like [FLUJO](https://github.com/mario-andreschak/FLUJO), [Claude](https://claude.com/download) or [Cline](https://marketplace.visualstudio.com/items?itemName=saoudrizwan.claude-dev) (a VS Code extension) talk to your ABAP system and retrieve information like source code, table structures, and more.  It's like having a remote control for your ABAP development environment! 
 
-The server is published on npm as [`mcp-abap-adt`](https://www.npmjs.com/package/mcp-abap-adt) and listed in the [MCP Registry](https://registry.modelcontextprotocol.io) as `io.github.mario-andreschak/mcp-abap-adt`, so most MCP clients can install it with a single command. Tool discovery works without SAP credentials; calls that access SAP require the configuration below. The sixteen tools are read-only. 
+The server is published on npm as [`mcp-abap-adt`](https://www.npmjs.com/package/mcp-abap-adt) and listed in the [MCP Registry](https://registry.modelcontextprotocol.io) as `io.github.mario-andreschak/mcp-abap-adt`, so most MCP clients can install it with a single command. Tool discovery works without SAP credentials; calls that access SAP require the configuration below. The sixteen default tools are read-only; optional write tools can be enabled with `SAP_ALLOW_WRITE=1` (see Available Tools). 
 
 This guide is designed for beginners, so we'll walk through everything step-by-step.  We'll cover:
 
@@ -369,6 +369,19 @@ This server provides the following tools, which can be used through FLUJO, Cline
 | `GetTransaction`    | Retrieve ABAP transaction details.                | `transaction_name` (string): Name of the ABAP transaction.         | `@tool GetTransaction transaction_name=ZMY_TRANSACTION`    |
 | `GetBehaviorDefinition` | Retrieve RAP Behavior Definition (BDEF) source. Requires ~NW 7.54 / S/4HANA. | `behavior_definition_name` (string): Name of the RAP Behavior Definition. | `@tool GetBehaviorDefinition behavior_definition_name=ZMY_ENTITY` |
 | `GetServiceDefinition`  | Retrieve RAP Service Definition (SRVD) source. Requires ~NW 7.54 / S/4HANA.  | `service_definition_name` (string): Name of the RAP Service Definition.   | `@tool GetServiceDefinition service_definition_name=ZMY_SERVICE`  |
+
+### Write tools (opt-in)
+
+Write tools are **not registered** unless the server is started with `SAP_ALLOW_WRITE=1`. Enable them only on a development system, with a user that has development authorization. They only accept customer objects (`Y*`, `Z*`, `/NAMESPACE/`), and every lock is released after the write, even if the write fails.
+
+| Tool Name             | Description                                                                 | Input Parameters |
+| --------------------- | --------------------------------------------------------------------------- | ---------------- |
+| `GetTransportInfo`    | Read-only: transport requests usable for a program in a package.            | `package_name`, `program_name` |
+| `GetTextElements`     | Read-only: text symbols, selection texts or list headings of a program.     | `program_name`, `kind` (`symbols`/`selections`/`headings`) |
+| `CreateProgram`       | Create an empty executable program in a package.                            | `program_name`, `description`, `package_name`, `transport` (required unless `$TMP`), `language` |
+| `UpdateProgramSource` | Replace the full program source (lock, write, unlock). It stays inactive until activated. | `program_name`, `source`, `transport` |
+| `UpdateTextElements`  | Replace text symbols, selection texts or list headings.                     | `program_name`, `kind`, `source`, `transport` |
+| `ActivateObject`      | Activate an object and return activation messages with line numbers.        | `object_name`, `object_type` (`PROG`/`INCL`/`CLAS`/`INTF`, default `PROG`) |
 
 
 
