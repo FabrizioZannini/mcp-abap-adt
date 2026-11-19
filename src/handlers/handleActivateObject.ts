@@ -12,6 +12,7 @@ const OBJECT_PATHS: Record<string, string> = {
     INCL: '/sap/bc/adt/programs/includes/',
     CLAS: '/sap/bc/adt/oo/classes/',
     INTF: '/sap/bc/adt/oo/interfaces/',
+    TABL: '/sap/bc/adt/ddic/tables/',
 };
 
 function decode(value: string) {

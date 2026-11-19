@@ -11,6 +11,7 @@ import { parseActivationMessages } from '../handlers/handleActivateObject';
 import { handleUpdateProgramSource } from '../handlers/handleUpdateProgramSource';
 import { createServer } from '../index';
 import { handleDeleteObject } from '../handlers/handleDeleteObject';
+import { handleUpdateTableSource } from '../handlers/handleUpdateTableSource';
 import {
   functionGroupPath,
   functionModulePath,
@@ -104,6 +105,18 @@ describe('object deletion', () => {
     process.env.SAP_ALLOW_WRITE = '1';
     const result = await handleDeleteObject({ object_name: 'SAPMV45A', confirm: 'SAPMV45A' });
     expect(result.isError).toBe(true);
+  });
+});
+
+describe('table source', () => {
+  it('requires the matching define table statement', async () => {
+    const original = process.env.SAP_ALLOW_WRITE;
+    process.env.SAP_ALLOW_WRITE = '1';
+    const result = await handleUpdateTableSource({ table_name: 'ZTAB', source: 'define table zother { }' });
+    if (original === undefined) delete process.env.SAP_ALLOW_WRITE;
+    else process.env.SAP_ALLOW_WRITE = original;
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/define table ztab/);
   });
 });
 

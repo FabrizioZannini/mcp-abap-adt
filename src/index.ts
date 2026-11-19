@@ -29,6 +29,7 @@ import { handleCreateProgram } from "./handlers/handleCreateProgram";
 import { handleUpdateProgramSource } from "./handlers/handleUpdateProgramSource";
 import { handleActivateObject } from "./handlers/handleActivateObject";
 import { handleDeleteObject } from "./handlers/handleDeleteObject";
+import { handleUpdateTableSource } from "./handlers/handleUpdateTableSource";
 import {
   handleCreateFunctionGroup,
   handleCreateFunctionModule,
@@ -502,7 +503,7 @@ export const WRITE_TOOL_DEFINITIONS = [
         object_name: { type: "string", description: "Object name" },
         object_type: {
           type: "string",
-          enum: ["PROG", "INCL", "CLAS", "INTF", "FUGR", "FUNC"],
+          enum: ["PROG", "INCL", "CLAS", "INTF", "TABL", "FUGR", "FUNC"],
           description:
             "Object type (default PROG). FUGR = function group, FUNC = function module (needs function_group)",
         },
@@ -524,7 +525,7 @@ export const WRITE_TOOL_DEFINITIONS = [
         object_name: { type: "string", description: "Object name" },
         object_type: {
           type: "string",
-          enum: ["PROG", "INCL", "CLAS", "INTF", "FUGR", "FUNC"],
+          enum: ["PROG", "INCL", "CLAS", "INTF", "TABL", "FUGR", "FUNC"],
           description:
             "Object type (default PROG). FUGR = function group, FUNC = function module (needs function_group)",
         },
@@ -539,6 +540,20 @@ export const WRITE_TOOL_DEFINITIONS = [
         transport: TRANSPORT,
       },
       required: ["object_name", "confirm"],
+    },
+  },
+  {
+    name: "UpdateTableSource",
+    description:
+      "Replace the DDL source (define table ...) of an existing customer database table (Y*/Z* only). Read it first with GetTable. Activate with ActivateObject (TABL), which adjusts the database.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        table_name: { type: "string", description: "Table name" },
+        source: { type: "string", description: "Complete DDL source" },
+        transport: TRANSPORT,
+      },
+      required: ["table_name", "source"],
     },
   },
   {
@@ -610,6 +625,7 @@ const WRITE_HANDLERS: Record<string, (args: any) => Promise<any>> = {
   UpdateTextElements: handleUpdateTextElements,
   ActivateObject: handleActivateObject,
   DeleteObject: handleDeleteObject,
+  UpdateTableSource: handleUpdateTableSource,
   CreateFunctionGroup: handleCreateFunctionGroup,
   CreateFunctionModule: handleCreateFunctionModule,
   UpdateFunctionModuleSource: handleUpdateFunctionModuleSource,
