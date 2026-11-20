@@ -464,11 +464,17 @@ export const WRITE_TOOL_DEFINITIONS = [
   {
     name: "UpdateProgramSource",
     description:
-      "Replace the full source of an ABAP program (Y*/Z* only): lock, write, unlock. The new version stays inactive until ActivateObject.",
+      "Replace the full source of an ABAP program or include (Y*/Z* only): lock, write, unlock. The new version stays inactive until ActivateObject (use object_type INCL there too for an include).",
     inputSchema: {
       type: "object",
       properties: {
-        program_name: { type: "string", description: "Program name" },
+        program_name: { type: "string", description: "Program or include name" },
+        object_type: {
+          type: "string",
+          enum: ["PROG", "INCL"],
+          description:
+            "PROG = executable program (default), INCL = include program",
+        },
         source: { type: "string", description: "Complete ABAP source" },
         transport: TRANSPORT,
       },

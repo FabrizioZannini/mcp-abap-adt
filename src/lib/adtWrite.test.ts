@@ -8,7 +8,7 @@ import {
   normalizeTransport
 } from './adtWrite';
 import { parseActivationMessages } from '../handlers/handleActivateObject';
-import { handleUpdateProgramSource } from '../handlers/handleUpdateProgramSource';
+import { handleUpdateProgramSource, programSourcePath } from '../handlers/handleUpdateProgramSource';
 import { createServer } from '../index';
 import { handleDeleteObject } from '../handlers/handleDeleteObject';
 import { handleUpdateTableSource } from '../handlers/handleUpdateTableSource';
@@ -117,6 +117,32 @@ describe('table source', () => {
     else process.env.SAP_ALLOW_WRITE = original;
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toMatch(/define table ztab/);
+  });
+});
+
+describe('program source paths', () => {
+  const original = process.env.SAP_ALLOW_WRITE;
+  afterEach(() => {
+    if (original === undefined) delete process.env.SAP_ALLOW_WRITE;
+    else process.env.SAP_ALLOW_WRITE = original;
+  });
+
+  it('targets programs by default and includes on request', () => {
+    expect(programSourcePath(undefined, 'ZTEST')).toBe('/sap/bc/adt/programs/programs/ztest');
+    expect(programSourcePath('prog', 'ZTEST')).toBe('/sap/bc/adt/programs/programs/ztest');
+    expect(programSourcePath('INCL', 'ZTEST_F01')).toBe('/sap/bc/adt/programs/includes/ztest_f01');
+    expect(() => programSourcePath('CLAS', 'ZTEST')).toThrow(/object_type/);
+  });
+
+  it('rejects an unknown object_type before touching SAP', async () => {
+    process.env.SAP_ALLOW_WRITE = '1';
+    const result = await handleUpdateProgramSource({
+      program_name: 'ZTEST',
+      object_type: 'FUGR',
+      source: 'REPORT ztest.'
+    });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/object_type/);
   });
 });
 

@@ -379,7 +379,7 @@ Write tools are **not registered** unless the server is started with `SAP_ALLOW_
 | `GetTransportInfo`    | Read-only: transport requests usable for a program in a package.            | `package_name`, `program_name` |
 | `GetTextElements`     | Read-only: text symbols, selection texts or list headings of a program.     | `program_name`, `kind` (`symbols`/`selections`/`headings`) |
 | `CreateProgram`       | Create an empty executable program in a package.                            | `program_name`, `description`, `package_name`, `transport` (required unless `$TMP`), `language` |
-| `UpdateProgramSource` | Replace the full program source (lock, write, unlock). It stays inactive until activated. | `program_name`, `source`, `transport` |
+| `UpdateProgramSource` | Replace the full source of a program or include (lock, write, unlock). It stays inactive until activated. | `program_name`, `source`, `object_type` (`PROG` default, `INCL` for includes), `transport` |
 | `UpdateTextElements`  | Replace text symbols, selection texts or list headings.                     | `program_name`, `kind`, `source`, `transport` |
 | `ActivateObject`      | Activate an object and return activation messages with line numbers.        | `object_name`, `object_type` (`PROG`/`INCL`/`CLAS`/`INTF`/`TABL`/`FUGR`/`FUNC`, default `PROG`), `function_group` (`FUNC` only) |
 | `CreateFunctionGroup` | Create a function group in a package.                                       | `function_group`, `description`, `package_name`, `transport` (required unless `$TMP`), `language` |

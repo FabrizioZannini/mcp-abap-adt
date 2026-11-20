@@ -11,10 +11,29 @@ import {
 
 const MAX_SOURCE_BYTES = 2 * 1024 * 1024;
 
+const SOURCE_PATHS: Record<string, string> = {
+    PROG: '/sap/bc/adt/programs/programs/',
+    INCL: '/sap/bc/adt/programs/includes/',
+};
+
+/** ADT URI of an executable program (PROG) or include (INCL). */
+export function programSourcePath(objectType: unknown, programName: string): string {
+    const type = String(objectType ?? 'PROG').trim().toUpperCase() || 'PROG';
+    const basePath = SOURCE_PATHS[type];
+    if (!basePath) {
+        throw new McpError(
+            ErrorCode.InvalidParams,
+            `object_type must be one of ${Object.keys(SOURCE_PATHS).join(', ')}`
+        );
+    }
+    return `${basePath}${encodeURIComponent(programName.toLowerCase())}`;
+}
+
 export async function handleUpdateProgramSource(args: any) {
     try {
         assertWriteEnabled();
         const programName = normalizeCustomerName(args?.program_name, 'program_name');
+        const objectPath = programSourcePath(args?.object_type, programName);
         const transport = normalizeTransport(args?.transport);
         const source = args?.source;
         if (typeof source !== 'string' || !source.trim()) {
@@ -26,7 +45,7 @@ export async function handleUpdateProgramSource(args: any) {
         // ADT stores ABAP sources with CRLF line endings
         const normalized = source.replace(/\r?\n/g, '\r\n');
 
-        const objectUrl = `${await getBaseUrl()}/sap/bc/adt/programs/programs/${encodeURIComponent(programName.toLowerCase())}`;
+        const objectUrl = `${await getBaseUrl()}${objectPath}`;
         await withLock(objectUrl, async (lockHandle) => {
             await makeAdtRequest(
                 `${objectUrl}/source/main`,
