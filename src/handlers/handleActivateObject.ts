@@ -1,10 +1,12 @@
 import { McpError, ErrorCode, makeAdtRequest, getBaseUrl } from '../lib/utils';
 import {
     assertWriteEnabled,
+    functionGroupOfInclude,
     normalizeCustomerName,
     return_write_error,
     return_write_result,
 } from '../lib/adtWrite';
+import { programSourcePath } from './handleUpdateProgramSource';
 import { functionGroupPath, functionModulePath } from './handleFunctions';
 
 const OBJECT_PATHS: Record<string, string> = {
@@ -42,6 +44,14 @@ export function parseActivationMessages(xml: string) {
 /** ADT URI of a customer object from object_type/object_name(/function_group). */
 export function resolveObject(args: any) {
     const objectType = String(args?.object_type ?? 'PROG').trim().toUpperCase();
+    const fgInclude =
+        objectType === 'INCL'
+            ? functionGroupOfInclude(String(args?.object_name ?? '').trim().toUpperCase())
+            : undefined;
+    if (fgInclude) {
+        const objectName = String(args.object_name).trim().toUpperCase();
+        return { objectType, objectName, uri: programSourcePath('INCL', objectName) };
+    }
     const objectName = normalizeCustomerName(args?.object_name, 'object_name');
     if (objectType === 'FUGR') {
         return { objectType, objectName, uri: functionGroupPath(objectName) };
@@ -63,10 +73,23 @@ export function resolveObject(args: any) {
     return { objectType, objectName, uri: `${basePath}${encodeURIComponent(objectName.toLowerCase())}` };
 }
 
+// Text elements (text pool) of a program are a separate ADT object: activating
+// the program does not activate them, so they need their own activation.
+function resolveActivationTarget(args: any) {
+    if (String(args?.object_type ?? '').trim().toUpperCase() === 'TEXT') {
+        const objectName = normalizeCustomerName(args?.object_name, 'object_name');
+        return {
+            objectName,
+            uri: `/sap/bc/adt/textelements/programs/${encodeURIComponent(objectName.toLowerCase())}`,
+        };
+    }
+    return resolveObject(args);
+}
+
 export async function handleActivateObject(args: any) {
     try {
         assertWriteEnabled();
-        const { objectName, uri } = resolveObject(args);
+        const { objectName, uri } = resolveActivationTarget(args);
         const body =
             '<?xml version="1.0" encoding="UTF-8"?>' +
             '<adtcore:objectReferences xmlns:adtcore="http://www.sap.com/adt/core">' +

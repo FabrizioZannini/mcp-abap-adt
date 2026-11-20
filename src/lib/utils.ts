@@ -404,6 +404,17 @@ export async function getAuthHeaders() {
   };
 }
 
+/** A 403 caused by a missing/expired CSRF token rather than by authorization. */
+export function isCsrfFailure(error: unknown): boolean {
+  if (!(error instanceof AxiosError) || error.response?.status !== 403) {
+    return false;
+  }
+  const header = String(error.response.headers?.["x-csrf-token"] ?? "");
+  if (header.toLowerCase() === "required") return true;
+  const body = error.response.data;
+  return typeof body === "string" && body.includes("CSRF");
+}
+
 async function fetchCsrfToken(url: string): Promise<string> {
   if (!config) {
     config = getConfig();
@@ -521,13 +532,10 @@ export async function makeAdtRequest(
     storeCookies(response.headers["set-cookie"]);
     return response;
   } catch (error) {
-    // If we get a 403 with "CSRF token validation failed", try to fetch a new token and retry
-    if (
-      error instanceof AxiosError &&
-      error.response?.status === 403 &&
-      typeof error.response.data === "string" &&
-      error.response.data.includes("CSRF")
-    ) {
+    // On a CSRF failure (expired session/token) fetch a new token and retry
+    // once. SAP flags it with the header "x-csrf-token: Required"; the body
+    // is often empty or localized, so the header is the reliable signal.
+    if (needsCsrf && isCsrfFailure(error)) {
       csrfToken = await fetchCsrfToken(url);
       requestConfig.headers["x-csrf-token"] = csrfToken;
       if (cookies) requestConfig.headers["Cookie"] = cookies;

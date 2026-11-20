@@ -79,7 +79,7 @@ export async function handleUpdateTextElements(args: any) {
         return return_write_result({
             updated: `${programName} text elements (${kind})`,
             transport: transport ?? null,
-            status: 'saved - activate the program with ActivateObject',
+            status: 'saved (inactive) - run ActivateObject with object_type TEXT to activate the text elements',
         });
     } catch (error) {
         return return_write_error(error);

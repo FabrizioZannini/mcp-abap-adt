@@ -33,6 +33,32 @@ export function normalizeCustomerName(value: unknown, label: string): string {
   return name;
 }
 
+/**
+ * Function group of a customer function group include, named
+ * L + group + 3-character suffix (LZFGTOP, LZFGF01, LZFGUXX ...).
+ */
+export function functionGroupOfInclude(name: string): string | undefined {
+  const match = /^L([YZ][A-Z0-9_]{0,25})([A-Z0-9_]{3})$/.exec(name);
+  return match ? match[1] : undefined;
+}
+
+/**
+ * Name of a program or include that may be changed: a customer object, or
+ * (for includes only) an include of a customer function group.
+ */
+export function normalizeProgramName(
+  value: unknown,
+  objectType: unknown,
+  label: string,
+): string {
+  const name = String(value ?? "")
+    .trim()
+    .toUpperCase();
+  const type = String(objectType ?? "PROG").trim().toUpperCase();
+  if (type === "INCL" && functionGroupOfInclude(name)) return name;
+  return normalizeCustomerName(value, label);
+}
+
 export function normalizeTransport(value: unknown): string | undefined {
   if (value === undefined || value === null || value === "") return undefined;
   const transport = String(value).trim().toUpperCase();

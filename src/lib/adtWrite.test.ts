@@ -2,15 +2,19 @@ import { AxiosError, AxiosHeaders } from 'axios';
 import {
   adtErrorMessage,
   assertWriteEnabled,
+  functionGroupOfInclude,
   isWriteEnabled,
   normalizeCustomerName,
+  normalizeProgramName,
   normalizePackage,
   normalizeTransport
 } from './adtWrite';
-import { parseActivationMessages } from '../handlers/handleActivateObject';
+import { parseActivationMessages, resolveObject } from '../handlers/handleActivateObject';
+import { isCsrfFailure } from './utils';
 import { handleUpdateProgramSource, programSourcePath } from '../handlers/handleUpdateProgramSource';
 import { createServer } from '../index';
 import { handleDeleteObject } from '../handlers/handleDeleteObject';
+import { applySourceEdits, handlePatchProgramSource } from '../handlers/handlePatchProgramSource';
 import { handleUpdateTableSource } from '../handlers/handleUpdateTableSource';
 import {
   functionGroupPath,
@@ -134,6 +138,22 @@ describe('program source paths', () => {
     expect(() => programSourcePath('CLAS', 'ZTEST')).toThrow(/object_type/);
   });
 
+  it('targets customer function group includes under their group', () => {
+    expect(functionGroupOfInclude('LZNOTE_RIOF01')).toBe('ZNOTE_RIO');
+    expect(functionGroupOfInclude('LZFGTOP')).toBe('ZFG');
+    expect(functionGroupOfInclude('LSVIMF01')).toBeUndefined();
+    expect(functionGroupOfInclude('ZPROG')).toBeUndefined();
+    expect(programSourcePath('INCL', 'LZNOTE_RIOF01')).toBe(
+      '/sap/bc/adt/functions/groups/znote_rio/includes/lznote_riof01'
+    );
+    expect(normalizeProgramName('lznote_riof01', 'INCL', 'n')).toBe('LZNOTE_RIOF01');
+    expect(() => normalizeProgramName('LZNOTE_RIOF01', 'PROG', 'n')).toThrow();
+    expect(() => normalizeProgramName('LSVIMF01', 'INCL', 'n')).toThrow();
+    expect(resolveObject({ object_name: 'LZNOTE_RIOF01', object_type: 'INCL' }).uri).toBe(
+      '/sap/bc/adt/functions/groups/znote_rio/includes/lznote_riof01'
+    );
+  });
+
   it('rejects an unknown object_type before touching SAP', async () => {
     process.env.SAP_ALLOW_WRITE = '1';
     const result = await handleUpdateProgramSource({
@@ -143,6 +163,67 @@ describe('program source paths', () => {
     });
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toMatch(/object_type/);
+  });
+});
+
+describe('source patching', () => {
+  const src = [
+    '**--Soglia3',
+    '  IF ( pttot >= soglia3da ) AND',
+    '     ( pttot < soglia3a ).',
+    '**--Soglia4',
+    '  IF ( pttot >= soglia3da ) AND   ',
+    '     ( pttot < soglia3a ).',
+    ''
+  ].join('\n');
+
+  it('replaces a unique block and reports its line', () => {
+    const { source, applied } = applySourceEdits(src, [
+      { old_text: '**--Soglia4\n  IF ( pttot >= soglia3da ) AND', new_text: '**--Soglia4\n  IF ( pttot >= soglia4da ) AND' }
+    ]);
+    expect(source).toContain('**--Soglia4\n  IF ( pttot >= soglia4da ) AND');
+    expect(source).toContain('**--Soglia3\n  IF ( pttot >= soglia3da ) AND');
+    expect(applied[0]).toMatchObject({ edit: 1, line: 4, occurrences: 1 });
+  });
+
+  it('ignores trailing blanks on lines of old_text', () => {
+    const { source, applied } = applySourceEdits(src, [
+      { old_text: '**--Soglia4\n  IF ( pttot >= soglia3da ) AND\n     ( pttot < soglia3a ).', new_text: 'X' }
+    ]);
+    expect(applied[0].whitespace_tolerant).toBe(true);
+    expect(source).toBe('**--Soglia3\n  IF ( pttot >= soglia3da ) AND\n     ( pttot < soglia3a ).\nX\n');
+  });
+
+  it('rejects ambiguous or missing text and applies nothing', () => {
+    expect(() =>
+      applySourceEdits(src, [{ old_text: '( pttot < soglia3a ).', new_text: 'x' }])
+    ).toThrow(/occurs 2 times \(lines 3, 6\)/);
+    expect(() =>
+      applySourceEdits(src, [
+        { old_text: '**--Soglia3', new_text: 'A' },
+        { old_text: 'not there', new_text: 'B' }
+      ])
+    ).toThrow(/edit 2: old_text not found/);
+  });
+
+  it('replaces every occurrence with replace_all', () => {
+    const { source, applied } = applySourceEdits(src, [
+      { old_text: 'soglia3a', new_text: 'sogliaXa', replace_all: true }
+    ]);
+    expect(source).not.toContain('soglia3a');
+    expect(applied[0].occurrences).toBe(2);
+  });
+
+  it('refuses to patch when writes are disabled', async () => {
+    const original = process.env.SAP_ALLOW_WRITE;
+    delete process.env.SAP_ALLOW_WRITE;
+    const result = await handlePatchProgramSource({
+      program_name: 'ZTEST',
+      edits: [{ old_text: 'a', new_text: 'b' }]
+    });
+    if (original !== undefined) process.env.SAP_ALLOW_WRITE = original;
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/disabled/);
   });
 });
 
@@ -188,6 +269,21 @@ describe('ADT responses', () => {
     });
     expect(adtErrorMessage(error)).toBe('SAP request failed (HTTP 400): Program ZX already exists & is locked');
     expect(adtErrorMessage(new Error('x'))).toBeUndefined();
+  });
+
+  it('recognises an expired CSRF token from the SAP header', () => {
+    const make = (status: number, headers: any, data: any) =>
+      new AxiosError('fail', 'ERR', undefined, undefined, {
+        status,
+        statusText: '',
+        headers,
+        config: { headers: new AxiosHeaders() },
+        data
+      });
+    expect(isCsrfFailure(make(403, { 'x-csrf-token': 'Required' }, ''))).toBe(true);
+    expect(isCsrfFailure(make(403, {}, 'CSRF token validation failed'))).toBe(true);
+    expect(isCsrfFailure(make(403, {}, '<exc:exception>No authorization</exc:exception>'))).toBe(false);
+    expect(isCsrfFailure(make(401, { 'x-csrf-token': 'Required' }, ''))).toBe(false);
   });
 
   it('parses activation messages with line numbers', () => {

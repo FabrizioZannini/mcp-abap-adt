@@ -27,6 +27,7 @@ import { handleGetBehaviorDefinition } from "./handlers/handleGetBehaviorDefinit
 import { handleGetServiceDefinition } from "./handlers/handleGetServiceDefinition";
 import { handleCreateProgram } from "./handlers/handleCreateProgram";
 import { handleUpdateProgramSource } from "./handlers/handleUpdateProgramSource";
+import { handlePatchProgramSource } from "./handlers/handlePatchProgramSource";
 import { handleActivateObject } from "./handlers/handleActivateObject";
 import { handleDeleteObject } from "./handlers/handleDeleteObject";
 import { handleUpdateTableSource } from "./handlers/handleUpdateTableSource";
@@ -464,7 +465,7 @@ export const WRITE_TOOL_DEFINITIONS = [
   {
     name: "UpdateProgramSource",
     description:
-      "Replace the full source of an ABAP program or include (Y*/Z* only): lock, write, unlock. The new version stays inactive until ActivateObject (use object_type INCL there too for an include).",
+      "Replace the full source of an ABAP program or include (Y*/Z* only, or an include LZ... of a customer function group): lock, write, unlock. The new version stays inactive until ActivateObject (use object_type INCL there too for an include).",
     inputSchema: {
       type: "object",
       properties: {
@@ -482,9 +483,55 @@ export const WRITE_TOOL_DEFINITIONS = [
     },
   },
   {
+    name: "PatchProgramSource",
+    description:
+      "Change parts of an ABAP program or include (Y*/Z* only, or an include LZ... of a customer function group) without resending the whole source: reads the current source under lock, replaces each old_text with new_text, writes it back. Each old_text must match exactly once (trailing blanks on a line are ignored) unless replace_all is set; if any edit fails nothing is written. dry_run checks the edits without writing. Stays inactive until ActivateObject.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        program_name: { type: "string", description: "Program or include name" },
+        object_type: {
+          type: "string",
+          enum: ["PROG", "INCL"],
+          description:
+            "PROG = executable program (default), INCL = include program",
+        },
+        edits: {
+          type: "array",
+          minItems: 1,
+          maxItems: 50,
+          description: "Replacements applied in order",
+          items: {
+            type: "object",
+            properties: {
+              old_text: {
+                type: "string",
+                minLength: 1,
+                description: "Exact text to replace, with enough surrounding lines to be unique",
+              },
+              new_text: { type: "string", description: "Replacement text" },
+              replace_all: {
+                type: "boolean",
+                description: "Replace every occurrence instead of requiring exactly one",
+              },
+            },
+            required: ["old_text", "new_text"],
+            additionalProperties: false,
+          },
+        },
+        dry_run: {
+          type: "boolean",
+          description: "Validate the edits against the current source without writing",
+        },
+        transport: TRANSPORT,
+      },
+      required: ["program_name", "edits"],
+    },
+  },
+  {
     name: "UpdateTextElements",
     description:
-      "Replace text symbols, selection texts or list headings of an ABAP program (Y*/Z* only). Use GetTextElements first to see the expected format.",
+      "Replace text symbols, selection texts or list headings of an ABAP program (Y*/Z* only). Use GetTextElements first to see the expected format. Saved inactive: activate them with ActivateObject object_type TEXT (activating the program does not activate its text elements).",
     inputSchema: {
       type: "object",
       properties: {
@@ -509,9 +556,9 @@ export const WRITE_TOOL_DEFINITIONS = [
         object_name: { type: "string", description: "Object name" },
         object_type: {
           type: "string",
-          enum: ["PROG", "INCL", "CLAS", "INTF", "TABL", "FUGR", "FUNC"],
+          enum: ["PROG", "INCL", "CLAS", "INTF", "TABL", "FUGR", "FUNC", "TEXT"],
           description:
-            "Object type (default PROG). FUGR = function group, FUNC = function module (needs function_group)",
+            "Object type (default PROG). FUGR = function group, FUNC = function module (needs function_group), TEXT = text elements of a program (activated separately from the program)",
         },
         function_group: {
           type: "string",
@@ -628,6 +675,7 @@ const WRITE_HANDLERS: Record<string, (args: any) => Promise<any>> = {
   GetTextElements: handleGetTextElements,
   CreateProgram: handleCreateProgram,
   UpdateProgramSource: handleUpdateProgramSource,
+  PatchProgramSource: handlePatchProgramSource,
   UpdateTextElements: handleUpdateTextElements,
   ActivateObject: handleActivateObject,
   DeleteObject: handleDeleteObject,

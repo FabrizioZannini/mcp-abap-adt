@@ -1,7 +1,8 @@
 import { McpError, ErrorCode, makeAdtRequest, getBaseUrl } from '../lib/utils';
 import {
     assertWriteEnabled,
-    normalizeCustomerName,
+    functionGroupOfInclude,
+    normalizeProgramName,
     normalizeTransport,
     withLock,
     STATEFUL,
@@ -16,7 +17,10 @@ const SOURCE_PATHS: Record<string, string> = {
     INCL: '/sap/bc/adt/programs/includes/',
 };
 
-/** ADT URI of an executable program (PROG) or include (INCL). */
+/**
+ * ADT URI of an executable program (PROG) or include (INCL). Includes of a
+ * customer function group (LZ...F01) live under the function group.
+ */
 export function programSourcePath(objectType: unknown, programName: string): string {
     const type = String(objectType ?? 'PROG').trim().toUpperCase() || 'PROG';
     const basePath = SOURCE_PATHS[type];
@@ -26,13 +30,18 @@ export function programSourcePath(objectType: unknown, programName: string): str
             `object_type must be one of ${Object.keys(SOURCE_PATHS).join(', ')}`
         );
     }
+    const name = programName.toUpperCase();
+    const group = type === 'INCL' ? functionGroupOfInclude(name) : undefined;
+    if (group) {
+        return `/sap/bc/adt/functions/groups/${encodeURIComponent(group.toLowerCase())}/includes/${encodeURIComponent(name.toLowerCase())}`;
+    }
     return `${basePath}${encodeURIComponent(programName.toLowerCase())}`;
 }
 
 export async function handleUpdateProgramSource(args: any) {
     try {
         assertWriteEnabled();
-        const programName = normalizeCustomerName(args?.program_name, 'program_name');
+        const programName = normalizeProgramName(args?.program_name, args?.object_type, 'program_name');
         const objectPath = programSourcePath(args?.object_type, programName);
         const transport = normalizeTransport(args?.transport);
         const source = args?.source;
