@@ -415,6 +415,21 @@ export function isCsrfFailure(error: unknown): boolean {
   return typeof body === "string" && body.includes("CSRF");
 }
 
+/**
+ * A 403 with no CSRF hint and no ADT exception body: typical of an expired
+ * SAP session whose cookies we still send. Authorization errors from ADT come
+ * with an <exc:exception> body (e.g. "No authorization") and are excluded.
+ */
+export function isStaleSessionFailure(error: unknown): boolean {
+  if (!(error instanceof AxiosError) || error.response?.status !== 403) {
+    return false;
+  }
+  if (isCsrfFailure(error)) return false;
+  const body = error.response.data;
+  const text = typeof body === "string" ? body : "";
+  return !text.includes("exc:exception") && !text.includes("<?xml");
+}
+
 async function fetchCsrfToken(url: string): Promise<string> {
   if (!config) {
     config = getConfig();
@@ -538,6 +553,21 @@ export async function makeAdtRequest(
     if (needsCsrf && isCsrfFailure(error)) {
       csrfToken = await fetchCsrfToken(url);
       requestConfig.headers["x-csrf-token"] = csrfToken;
+      if (cookies) requestConfig.headers["Cookie"] = cookies;
+      const retried = await createAxiosInstance()(requestConfig);
+      storeCookies(retried.headers["set-cookie"]);
+      return retried;
+    }
+    // A bare 403 (no "x-csrf-token: Required", no CSRF text) after a long idle
+    // time usually means the SAP session behind our cookies is gone: the stale
+    // sap-contextid/session cookies keep every write failing until reconnect.
+    // Drop token and cookies, open a fresh session and retry once; a genuine
+    // authorization error simply fails again and is reported as before.
+    if (needsCsrf && isStaleSessionFailure(error)) {
+      cookies = null;
+      csrfToken = await fetchCsrfToken(url);
+      requestConfig.headers["x-csrf-token"] = csrfToken;
+      delete requestConfig.headers["Cookie"];
       if (cookies) requestConfig.headers["Cookie"] = cookies;
       const retried = await createAxiosInstance()(requestConfig);
       storeCookies(retried.headers["set-cookie"]);

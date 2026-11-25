@@ -10,7 +10,7 @@ import {
   normalizeTransport
 } from './adtWrite';
 import { parseActivationMessages, resolveObject } from '../handlers/handleActivateObject';
-import { isCsrfFailure } from './utils';
+import { isCsrfFailure, isStaleSessionFailure } from './utils';
 import { handleUpdateProgramSource, programSourcePath } from '../handlers/handleUpdateProgramSource';
 import { createServer } from '../index';
 import { handleDeleteObject } from '../handlers/handleDeleteObject';
@@ -284,6 +284,22 @@ describe('ADT responses', () => {
     expect(isCsrfFailure(make(403, {}, 'CSRF token validation failed'))).toBe(true);
     expect(isCsrfFailure(make(403, {}, '<exc:exception>No authorization</exc:exception>'))).toBe(false);
     expect(isCsrfFailure(make(401, { 'x-csrf-token': 'Required' }, ''))).toBe(false);
+  });
+
+  it('recognises a bare 403 from an expired SAP session', () => {
+    const make = (status: number, headers: any, data: any) =>
+      new AxiosError('fail', 'ERR', undefined, undefined, {
+        status,
+        statusText: '',
+        headers,
+        config: { headers: new AxiosHeaders() },
+        data
+      });
+    expect(isStaleSessionFailure(make(403, {}, ''))).toBe(true);
+    expect(isStaleSessionFailure(make(403, {}, undefined))).toBe(true);
+    expect(isStaleSessionFailure(make(403, { 'x-csrf-token': 'Required' }, ''))).toBe(false);
+    expect(isStaleSessionFailure(make(403, {}, '<?xml version="1.0"?><exc:exception>No authorization</exc:exception>'))).toBe(false);
+    expect(isStaleSessionFailure(make(401, {}, ''))).toBe(false);
   });
 
   it('parses activation messages with line numbers', () => {
